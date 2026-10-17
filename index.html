@@ -1,0 +1,139 @@
+/* ===== Data ===== */
+const STAGES=[
+ {n:"User objective",role:"A person states a goal in their own words.",i:"Free-text request",o:"A defined task",l:"Ambiguous goals stay ambiguous; the system should ask, not guess."},
+ {n:"Task organization",role:"Breaks a goal into steps that can be checked.",i:"Task",o:"Ordered steps",l:"Design goal. Decomposition quality depends on the model used."},
+ {n:"Model / tool selection",role:"Chooses a primary and optional helper model, and which tools are permitted.",i:"Steps, permissions",o:"Selected model and tools",l:"Only supported local environments; compatibility is not claimed for every model."},
+ {n:"Local execution",role:"Runs models and tools on the user's machine.",i:"Prompt, allowed tools",o:"Raw model output",l:"Local does not mean secure; it depends on configuration and dependencies."},
+ {n:"Context & memory",role:"Keeps user-controlled notes that can be inspected and deleted.",i:"Stored entries",o:"Compiled context packet",l:"In development; recalled entries are data, and model-written ones are unverified."},
+ {n:"Review & output",role:"Presents results with their provenance and known limits.",i:"Raw output, context",o:"Reviewed answer",l:"Review is only as good as the checks defined."},
+ {n:"Verification & human oversight",role:"Sensitive actions require a person's approval; failures should be visible and closed by default.",i:"Proposed actions",o:"Approved or blocked action",l:"A principle we are building toward, not a certified control."}];
+const PRODUCTS=[
+ {id:"Angra",h:"A bridge between local models.",s:"Experimental",d:"Angra is an integration and collaboration bridge associated with LM Studio and Bionic. It is not a foundation model and does not run model weights itself. It aims to make coordination of supported local models more manageable: connecting compatible environments, choosing primary and secondary models, and coordinating workflows. Hardware-conscious operation is an objective, not a verified result. Compatibility with all models and automatic speedups are not claimed.",ln:null},
+ {id:"Nythos",h:"Memory the user can see and delete.",s:"In development",d:"Nythos is a local-assistant direction in the LM Studio ecosystem, built around persistent context the user controls. Its concept of J Space centers on inspecting and selectively deleting what is remembered. A benchmark record exists (see Research), but a website cannot reach anyone's LM Studio without an explicit local connection and permission.",ln:null},
+ {id:"Nythos Plus",h:"The extended direction.",s:"Direction",d:"Nythos Plus is the extended direction in this family: a more capable assistant experience within local workflows and model integration. No specifications, context lengths, memory sizes, benchmarks, compatibility claims or release dates are published.",ln:null}];
+const PRINCIPLES=[["Least privilege","Models and tools get only what a task needs."],["Explicit trust boundaries","Stored data, model output and user input are kept distinct."],["Defense in depth","No single check is the only barrier."],["Input validation","Untrusted text is never executed or injected as markup."],["Fail closed","When a check cannot run, the action does not proceed."],["Permission boundaries","Each model and tool has a stated allowance."],["Human review","Sensitive actions wait for a person."],["Understandable failures","Errors explain what happened."],["Versioned releases","Changes are tracked and reviewable."],["Testing","Limits found in tests are published."]];
+const OBS={
+ "Projects":[["CALYX","Initiative","Static information"],["Angra","Product","Experimental"],["Nythos","Product","In development"],["Nythos Plus","Product","Development status not published"]],
+ "Status":[["Angra","Experimental","Static information"],["Nythos","In development","Static information"],["Nythos Plus","Development status not published","Unknown"]],
+ "Releases":[["Angra","No published version","Last verified release: none"],["Nythos","No published version","Last verified release: none"],["Nythos Plus","No published version","Last verified release: none"]],
+ "Experiments":[["Nythos latency vs. store size","Measured locally (sandbox)","See Research"],["Nythos poisoned-claim test","Limit found: conflict engine missed a contradiction","See Research"],["Angra helper-model profile","Heuristic estimate","Illustrative"]],
+ "Security":[["External audit","None performed","Not verified"],["Principles","Listed above","Design intent"],["Server-side admin","Not configured","Not available"]],
+ "Links":[["CALYX site",LINKS.calyx,"url"],["CALYX repository",LINKS.repo,"url"],["Oblivion",LINKS.oblivion,"url"],["OblivionStudioDev",LINKS.studio,"url"],["Angra / Nythos docs","Not published","Link unavailable"]]};
+
+/* ===== Navigation ===== */
+const nav=$("#nav"),menu=$("#menu");
+menu.addEventListener("click",()=>{const o=nav.classList.toggle("open");menu.setAttribute("aria-expanded",o)});
+nav.addEventListener("click",e=>{if(e.target.tagName==="A"){nav.classList.remove("open");menu.setAttribute("aria-expanded","false")}});
+const secs=[...document.querySelectorAll("main section[id]")];
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)nav.querySelectorAll("a").forEach(a=>a.setAttribute("aria-current",String(a.getAttribute("href")==="#"+e.target.id)))}),{rootMargin:"-40% 0px -55% 0px"});
+secs.forEach(s=>io.observe(s));
+
+/* ===== Architecture ===== */
+(function(){
+ const svg=$("#diagram"),info=$("#nodeInfo"),NS="http://www.w3.org/2000/svg";
+ const pos=[[20,20],[250,20],[480,20],[710,20],[135,150],[365,150],[595,150]];
+ const gs=[];
+ STAGES.forEach((s,i)=>{
+  if(i){const p=pos[i-1],q=pos[i];const l=document.createElementNS(NS,"path");l.setAttribute("d",i===4?`M${p[0]+85} ${p[1]+70} L${q[0]+85} ${q[1]}`:`M${p[0]+170} ${p[1]+35} L${q[0]} ${q[1]+35}`);l.setAttribute("stroke","rgba(243,236,220,.3)");l.setAttribute("fill","none");svg.append(l)}
+  const g=document.createElementNS(NS,"g");g.setAttribute("class","node");g.setAttribute("role","button");g.setAttribute("tabindex","0");g.setAttribute("aria-pressed","false");g.setAttribute("aria-label",s.n);
+  g.setAttribute("transform",`translate(${pos[i][0]} ${pos[i][1]})`);
+  const r=document.createElementNS(NS,"rect");r.setAttribute("width",170);r.setAttribute("height",70);r.setAttribute("rx",4);
+  const t=document.createElementNS(NS,"text");t.setAttribute("x",12);t.setAttribute("y",40);t.textContent=s.n.length>22?s.n.slice(0,21)+"…":s.n;
+  g.append(r,t);svg.append(g);gs.push(g);
+  const pick=()=>{gs.forEach(x=>x.setAttribute("aria-pressed","false"));g.setAttribute("aria-pressed","true");info.replaceChildren(el("h3",{},s.n),el("p",{},s.role),el("p",{class:"mono"},"Input: "+s.i),el("p",{class:"mono"},"Output: "+s.o),el("p",{},"Limitation: "+s.l))};
+  g.addEventListener("click",pick);g.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();pick()}});
+  if(!i)pick();
+ });
+})();
+
+/* ===== Products ===== */
+(function(){
+ const tabs=$("#ptabs"),view=$("#pview");
+ function show(p){
+  [...tabs.children].forEach(b=>b.setAttribute("aria-selected",b.dataset.id===p.id));
+  view.replaceChildren(el("span",{class:"tag"},p.s),el("h3",{},p.h),el("p",{},p.d),el("p",{class:"mono"},"Documentation: not published yet"));
+ }
+ PRODUCTS.forEach((p,i)=>{const b=el("button",{role:"tab","data-id":p.id,"aria-selected":"false"},p.id);b.addEventListener("click",()=>show(p));tabs.append(b)});
+ show(PRODUCTS[0]);
+})();
+
+/* ===== Charts (SVG, built with DOM) ===== */
+function bars(svg,groups,series,colors,max,min){
+ const NS="http://www.w3.org/2000/svg",W=440,H=260,pl=34,pb=34,pt=14,h=H-pb-pt,rng=max-min;
+ const y=v=>pt+h-(v-min)/rng*h;
+ const mk=(n,a,t)=>{const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);if(t)e.textContent=t;svg.append(e);return e};
+ mk("line",{x1:pl,x2:W,y1:y(0),y2:y(0),stroke:"rgba(243,236,220,.4)"});
+ const gw=(W-pl)/groups.length,bw=(gw-24)/series.length;
+ groups.forEach((g,gi)=>{
+  mk("text",{x:pl+gi*gw+gw/2,y:H-12,"text-anchor":"middle",fill:"#f3ecdc","font-size":11},g);
+  series.forEach((s,si)=>{const v=s.v[gi],x=pl+gi*gw+12+si*bw,y0=y(0),y1=y(v);
+   mk("rect",{x,y:Math.min(y0,y1),width:bw-3,height:Math.abs(y0-y1),fill:colors[si]});
+   mk("text",{x:x+(bw-3)/2,y:Math.min(y0,y1)-3,"text-anchor":"middle",fill:"#f3ecdc","font-size":9},String(v))})});
+ series.forEach((s,si)=>{mk("rect",{x:pl+4+si*105,y:0,width:8,height:8,fill:colors[si]});mk("text",{x:pl+16+si*105,y:8,fill:"#f3ecdc","font-size":9},s.n)});
+}
+bars($("#chart"),["100","1,000","5,000"],[{n:"Recall (ms)",v:[2.6,4.2,18.1]},{n:"Workspace (ms)",v:[8.2,29.1,33.5]},{n:"Write (ms)",v:[0.4,2.4,14.4]}],["#2a78d6","#e9663a","#1caf7a"],38,0);
+bars($("#chart2"),["Text","Coding","Agent","Effic."],[{n:"GLM-4.6V-Flash",v:[0.83,1.29,0.05,-0.3]},{n:"Gemma 4 E4B",v:[1.25,1.43,0.3,-0.3]}],["#2a78d6","#e9a45f"],1.6,-0.5);
+
+/* ===== Principles, observatory, network, footer ===== */
+PRINCIPLES.forEach(([t,d])=>$("#principles").append(el("div",{class:"box"},el("h3",{},t),el("p",{},d))));
+(function(){
+ const tabs=$("#otabs"),view=$("#oview");
+ function show(k){
+  [...tabs.children].forEach(b=>b.setAttribute("aria-selected",b.dataset.k===k));
+  const t=el("table"),tb=el("tbody");
+  OBS[k].forEach(r=>{const tr=el("tr");r.forEach((c,i)=>{const td=el("td");if(r[2]==="url"&&i===1)td.append(link(c,c));else if(r[2]==="url"&&i===2)td.append(el("span",{class:"tag gray"},"Official link"));else td.append(c);tr.append(td)});tb.append(tr)});
+  t.append(tb);view.replaceChildren(t,el("p",{class:"mono"},"Published static information. Not live telemetry."));
+ }
+ Object.keys(OBS).forEach(k=>{const b=el("button",{role:"tab","data-k":k,"aria-selected":"false"},k);b.addEventListener("click",()=>show(k));tabs.append(b)});
+ show("Projects");
+})();
+[["Oblivion",LINKS.oblivion,"The wider engineering organization."],["OblivionStudioDev",LINKS.studio,"The development and engineering environment."],["CALYX",LINKS.calyx,"Local AI, model collaboration and defensive cybersecurity."]].forEach(([n,u,d])=>$("#sites").append(el("div",{class:"box"},el("h3",{},n),el("p",{},d),link(u,"Visit site"))));
+[["CALYX repository",LINKS.repo],["Oblivion",LINKS.oblivion],["OblivionStudioDev",LINKS.studio],["CALYX site",LINKS.calyx]].forEach(([n,u])=>$("#flinks").append(el("li",{},link(u,n))));
+$("#flinks").append(el("li",{},"Product documentation: not yet published"));
+if(CALYX_CONFIG.apiBase&&SAFE(CALYX_CONFIG.apiBase))$("#apiState").textContent="API configured (unverified)";
+
+/* ===== Sky ===== */
+const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
+(function(){
+ const NS="http://www.w3.org/2000/svg",st=$("#stars");
+ for(let i=0;i<70;i++){const c=document.createElementNS(NS,"circle");c.setAttribute("cx",(Math.random()*100)+"%");c.setAttribute("cy",(Math.random()*85)+"%");c.setAttribute("r",(Math.random()*1.1+.3).toFixed(2));c.setAttribute("fill","#fff");c.setAttribute("opacity",(Math.random()*.6+.3).toFixed(2));st.append(c)}
+ // keyframes: progress, top, bottom, cloud rgb, stars, moon, shade
+ const K=[[0,[47,120,187],[159,196,228],[255,250,240],0,0,.1],[.35,[70,95,150],[240,170,100],[255,205,150],0,0,.2],[.65,[22,40,90],[80,90,140],[150,160,190],.35,.4,.4],[1,[5,9,22],[14,22,48],[70,80,110],1,1,.6]];
+ const L=(a,b,t)=>a+(b-a)*t,M=(a,b,t)=>a.map((v,i)=>Math.round(L(v,b[i],t)));
+ let mode="auto",cur=0,target=0,raf=0,tick=false;
+ function apply(p){
+  let i=0;while(i<K.length-2&&p>K[i+1][0])i++;
+  const a=K[i],b=K[i+1],t=Math.min(1,Math.max(0,(p-a[0])/(b[0]-a[0])));
+  const r=document.documentElement.style;
+  r.setProperty("--sky1",`rgb(${M(a[1],b[1],t)})`);r.setProperty("--sky2",`rgb(${M(a[2],b[2],t)})`);r.setProperty("--cw",M(a[3],b[3],t).join(","));
+  r.setProperty("--st",L(a[4],b[4],t));r.setProperty("--mo",L(a[5],b[5],t));r.setProperty("--sh",L(a[6],b[6],t));
+ }
+ function loop(){cur+=(target-cur)*(reduce?1:.04);apply(cur);if(Math.abs(target-cur)>.002)raf=requestAnimationFrame(loop);else{raf=0}}
+ function setTarget(){const m=document.documentElement.scrollHeight-innerHeight;target=mode==="night"?1:(m>0?Math.min(1,scrollY/m):0);if(!raf&&!document.hidden)raf=requestAnimationFrame(loop)}
+ addEventListener("scroll",()=>{if(!tick){tick=true;requestAnimationFrame(()=>{tick=false;setTarget()})}},{passive:true});
+ addEventListener("resize",setTarget);
+ document.addEventListener("visibilitychange",()=>{if(document.hidden&&raf){cancelAnimationFrame(raf);raf=0}else setTarget()});
+ $("#mode").addEventListener("click",e=>{mode=mode==="night"?"auto":"night";e.target.setAttribute("aria-pressed",mode==="night");e.target.textContent=mode==="night"?"Follow scroll":"Night sky";setTarget()});
+ setTarget();apply(target);
+})();
+
+/* ===== Occasional bird ===== */
+(function(){
+ if(reduce)return;
+ const b=$("#bird");let timer=0;
+ const rnd=(a,c)=>a+Math.random()*(c-a);
+ function fly(){
+  if(document.hidden){schedule(30000);return}
+  const w=innerWidth,h=innerHeight,ltr=Math.random()<.5,y0=rnd(.12,.5)*h,y1=y0+rnd(-.12,.08)*h,dur=rnd(26000,38000);
+  const x0=ltr?-60:w+60,x1=ltr?w+60:-60;
+  b.style.transform="";b.style.opacity="";
+  const a=b.animate([{transform:`translate(${x0}px,${y0}px) scaleX(${ltr?1:-1})`,opacity:0},{opacity:.7,offset:.1},{transform:`translate(${(x0+x1)/2}px,${(y0+y1)/2-rnd(10,40)}px) scaleX(${ltr?1:-1})`,offset:.5},{opacity:.7,offset:.9},{transform:`translate(${x1}px,${y1}px) scaleX(${ltr?1:-1})`,opacity:0}],{duration:dur,easing:"ease-in-out"});
+  $("#wing",b).animate([{transform:"scaleY(1)"},{transform:"scaleY(.55)"},{transform:"scaleY(1)"}],{duration:2400,iterations:Math.ceil(dur/2400),easing:"ease-in-out"});
+  a.onfinish=()=>schedule(rnd(120000,240000));
+ }
+ function schedule(ms){clearTimeout(timer);timer=setTimeout(fly,ms)}
+ schedule(rnd(15000,45000));
+})();
+</script>
+</body>
+</html>
